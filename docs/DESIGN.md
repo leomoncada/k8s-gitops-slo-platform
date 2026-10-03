@@ -512,3 +512,6 @@ the full reasoning.
 | Recovery in tests | Alert resolved | SLI back within objective over 1 minute; the page must also clear with CI windows | With real windows on a young cluster the slow page (30 m / 6 h) legitimately stays for ~30 minutes after a 1-minute incident |
 | Clean baseline | Nothing but Watchdog | Watchdog firing, no page, and not the incident's expected alert (name and severity) | Tickets left by an earlier incident legitimately last hours with real windows |
 | Defaults disabled | etcd, scheduler, controller-manager | Also `NodeClockNotSynchronising` and `NodeClockSkewDetected` | kind nodes do not report NTP sync |
+| Argo CD diff | Default | Server-side diff (`controller.diff.server.side`) | API server defaults showed up as drift and left an Application OutOfSync until the smoke test timed out |
+| Chaos Mesh certificates | Chart defaults | Generated Secrets and webhook caBundles ignored after install | The chart regenerates TLS material on every render; a re-applied render broke the webhook with an unknown CA (found by CI) |
+| Incident #5 assertion | Error budget under a threshold | Client-side failure share at most 10%, with client and server totals recorded and client data required | A missing client series made the share a vacuous 0 |

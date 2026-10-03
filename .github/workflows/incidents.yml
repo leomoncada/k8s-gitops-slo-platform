@@ -5,6 +5,7 @@ name: incidents
 on:
   push:
     branches: [main]
+    paths-ignore: ["**/*.md", "docs/**"]
   schedule:
     - cron: "17 3 * * *" # nightly: catches upstream breakage, keeps README evidence fresh
   workflow_dispatch:

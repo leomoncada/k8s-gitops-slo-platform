@@ -124,6 +124,10 @@ in [DESIGN.md section 17](docs/DESIGN.md#17-changes-during-implementation):
 - **"No data" is not zero.** With no 5xx at all, the availability SLI returned
   no data instead of 0, exactly when the service was healthiest
   (`or vector(0)` in [slos/orders.yaml](slos/orders.yaml)).
+- **Charts that generate certificates fight GitOps.** Chaos Mesh renders new
+  TLS material every time; once Argo CD re-applied a render, the webhook
+  rejected every experiment with an unknown CA. CI caught it; the generated
+  material is now ignored after install.
 
 ## CI
 
