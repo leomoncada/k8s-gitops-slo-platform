@@ -9,6 +9,7 @@ cd "$ROOT"
 VENV_BIN="${VENV_BIN:-$ROOT/.venv/bin}"
 KUBECONFORM_IMAGE="ghcr.io/yannh/kubeconform:v0.8.0"
 SHELLCHECK_IMAGE="koalaman/shellcheck:v0.11.0"
+ACTIONLINT_IMAGE="rhysd/actionlint:1.7.12"
 OUT="build/lint"
 mkdir -p "$OUT"
 
@@ -22,6 +23,9 @@ if command -v shellcheck >/dev/null 2>&1; then
 else
   docker run --rm -v "$ROOT:/mnt" -w /mnt "$SHELLCHECK_IMAGE" -x scripts/*.sh
 fi
+
+log "actionlint (GitHub workflows)"
+docker run --rm -v "$ROOT:/repo" -w /repo "$ACTIONLINT_IMAGE" -color
 
 log "helm lint (charts in this repo)"
 for chart in deploy/platform deploy/platform-config deploy/workloads alerts; do

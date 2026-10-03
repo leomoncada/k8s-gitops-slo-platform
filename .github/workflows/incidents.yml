@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       incident:
-        description: "Incident number (1-6), empty for all"
+        description: "Incident number (1-6); empty runs all six"
         required: false
         default: ""
 
@@ -25,15 +25,32 @@ env:
   KIND_VERSION: v0.33.0
 
 jobs:
+  plan:
+    # The matrix context is not available in a job-level `if`, so the
+    # selection of incidents happens here.
+    runs-on: ubuntu-latest
+    outputs:
+      incidents: ${{ steps.pick.outputs.incidents }}
+    steps:
+      - id: pick
+        env:
+          REQUESTED: ${{ github.event.inputs.incident }}
+        run: |
+          case "${REQUESTED}" in
+            "") echo 'incidents=["1","2","3","4","5","6"]' >> "$GITHUB_OUTPUT" ;;
+            [1-6]) echo "incidents=[\"${REQUESTED}\"]" >> "$GITHUB_OUTPUT" ;;
+            *) echo "incident must be 1-6 or empty, got: ${REQUESTED}" >&2; exit 1 ;;
+          esac
+
   incident:
     name: incident ${{ matrix.incident }}
-    if: github.event.inputs.incident == '' || github.event.inputs.incident == null || contains(github.event.inputs.incident, matrix.incident)
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        incident: ["1", "2", "3", "4", "5", "6"]
+        incident: ${{ fromJSON(needs.plan.outputs.incidents) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
