@@ -7,7 +7,39 @@
 ---
 {{ include "platform.chartApp" (dict "root" $ "name" "tempo" "chart" $c.tempo "namespace" "monitoring" "release" "tempo" "file" "tempo.yaml" "wave" 1) }}
 ---
-{{ include "platform.chartApp" (dict "root" $ "name" "chaos-mesh" "chart" $c.chaosMesh "namespace" "chaos-mesh" "release" "chaos-mesh" "file" "chaos-mesh.yaml" "wave" 1) }}
+{{- /*
+Chaos Mesh generates its TLS material with Helm's genCA on every render. If
+Argo CD re-applied a new render, the webhook caBundle and the Secrets would
+change while the controller still serves the old certificate, and every
+experiment would fail with "x509: certificate signed by unknown authority".
+The material is created once at install and ignored afterwards.
+*/}}
+{{- $chaosCerts := `ignoreDifferences:
+  - kind: Secret
+    name: chaos-mesh-webhook-certs
+    jsonPointers: [/data]
+  - kind: Secret
+    name: chaos-mesh-daemon-certs
+    jsonPointers: [/data]
+  - kind: Secret
+    name: chaos-mesh-daemon-client-certs
+    jsonPointers: [/data]
+  - kind: Secret
+    name: chaos-mesh-chaosd-client-certs
+    jsonPointers: [/data]
+  - group: admissionregistration.k8s.io
+    kind: MutatingWebhookConfiguration
+    name: chaos-mesh-mutation
+    jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+  - group: admissionregistration.k8s.io
+    kind: ValidatingWebhookConfiguration
+    name: chaos-mesh-validation
+    jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+  - group: admissionregistration.k8s.io
+    kind: ValidatingWebhookConfiguration
+    name: chaos-mesh-validation-auth
+    jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]` }}
+{{ include "platform.chartApp" (dict "root" $ "name" "chaos-mesh" "chart" $c.chaosMesh "namespace" "chaos-mesh" "release" "chaos-mesh" "file" "chaos-mesh.yaml" "wave" 1 "extra" $chaosCerts) }}
 ---
 {{ include "platform.chartApp" (dict "root" $ "name" "otel-collector" "chart" $c.otelCollector "namespace" "monitoring" "release" "otel-collector" "file" "otel-collector.yaml" "wave" 2) }}
 ---
