@@ -25,6 +25,20 @@ while :; do
   if [ "$(date +%s)" -ge "$deadline" ]; then
     echo "timed out after ${timeout}s waiting for Applications" >&2
     kubectl -n argocd get applications.argoproj.io -o wide >&2 || true
+    echo "--- resources not Synced or not Healthy:" >&2
+    kubectl -n argocd get applications.argoproj.io -o json | "${PYTHON:-python3}" -c '
+import json, sys
+for app in json.load(sys.stdin)["items"]:
+    status = app.get("status", {})
+    for r in status.get("resources", []):
+        health = r.get("health", {}).get("status")
+        if r.get("status") != "Synced" or health not in (None, "Healthy"):
+            print(" ", app["metadata"]["name"], r["kind"], r.get("namespace", ""), r["name"],
+                  r.get("status"), health, r.get("health", {}).get("message", ""))
+    op = status.get("operationState", {})
+    if op.get("phase") not in (None, "Succeeded"):
+        print(" ", app["metadata"]["name"], "operation", op.get("phase"), op.get("message", "")[:200])
+' >&2 || true
     kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded >&2 || true
     exit 1
   fi

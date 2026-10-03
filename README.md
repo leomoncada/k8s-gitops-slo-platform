@@ -30,16 +30,18 @@ every night.
 
 | # | Incident | Injection | Caught by | Detect | Recover |
 |---|---|---|---|---|---|
-| 1 | [Bad release](incidents/01-bad-release/README.md) | Commit of orders 1.1.0, a serializer bug | `OrdersAvailabilityBurnRate` page, after every health check passed | 20 s | 61 s |
-| 2 | [Slow Postgres](incidents/02-slow-dependency/README.md) | Chaos Mesh: +400 ms on all Postgres egress | `OrdersLatencyBurnRate` page, then a trace shows the slow query | 30 s | 66 s |
-| 3 | [Memory leak](incidents/03-memory-leak/README.md) | Commit of orders 1.2.0, a cache that never evicts | `OrdersContainerOOMKilled`, a real OOM of the app | 166 s | 16 s |
-| 4 | [Manual drift](incidents/04-manual-drift/README.md) | `kubectl set env` and a deleted PodDisruptionBudget | Argo CD self-heal restores both, nobody is paged | healed in 6 s | |
-| 5 | [Node failure](incidents/05-node-failure/README.md) | `docker stop` on a worker | `KubeNodeDown`; replicas move to the surviving worker | 80 s | 10 s |
-| 6 | [Traffic spike](incidents/06-traffic-spike/README.md) | k6 ramping to ~350 req/s | `OrdersHPAMaxedOut` once autoscaling has no headroom | 111 s | 71 s |
+| 1 | [Bad release](incidents/01-bad-release/README.md) | Commit of orders 1.1.0, a serializer bug | `OrdersAvailabilityBurnRate` page, after every health check passed | 25 s | 76 s |
+| 2 | [Slow Postgres](incidents/02-slow-dependency/README.md) | Chaos Mesh: +400 ms on all Postgres egress | `OrdersLatencyBurnRate` page, then a trace shows the slow query | 15 s | 80 s |
+| 3 | [Memory leak](incidents/03-memory-leak/README.md) | Commit of orders 1.2.0, a cache that never evicts | `OrdersContainerOOMKilled`, a real OOM of the app | 225 s | 16 s |
+| 4 | [Manual drift](incidents/04-manual-drift/README.md) | `kubectl set env` and a deleted PodDisruptionBudget | Argo CD self-heal restores both, nobody is paged | healed in 2 s | |
+| 5 | [Node failure](incidents/05-node-failure/README.md) | `docker stop` on a worker | `KubeNodeDown`; replicas move to the surviving worker | 70 s | 5 s |
+| 6 | [Traffic spike](incidents/06-traffic-spike/README.md) | k6 ramping to ~350 req/s | `OrdersHPAMaxedOut` once autoscaling has no headroom | 86 s | 61 s |
 
 Detect: from the injection to the alert firing. Recover: from the alert to the
 SLI back within objective (or, for non-SLO alerts, to the alert resolving).
-Measured on 2026-10-03 with the CI overlay; the [incidents workflow](https://github.com/leomoncada/k8s-gitops-slo-platform/actions/workflows/incidents.yml)
+Measured by [this CI run](https://github.com/leomoncada/k8s-gitops-slo-platform/actions/runs/37136686289)
+on 2026-10-03 (compressed windows, one fresh cluster per incident); the
+[incidents workflow](https://github.com/leomoncada/k8s-gitops-slo-platform/actions/workflows/incidents.yml)
 publishes fresh numbers on every run. Postmortems:
 [#1](docs/postmortems/2026-10-03-bad-release-1.1.0.md),
 [#2](docs/postmortems/2026-10-03-slow-postgres.md).
@@ -99,10 +101,11 @@ Ports are bound to `127.0.0.1` only. Dashboards: `orders: service` and
 Found while making the incidents pass, each one now a test, an ADR or a line
 in [DESIGN.md section 17](docs/DESIGN.md#17-changes-during-implementation):
 
-- **Server-side SLIs have a blind spot.** When a node died, 3.3% of client
-  requests failed while the server-side 5xx ratio stayed at 0.00%: requests to
-  pods on the dead node never reach a server to be counted. k6 pushes
-  client-side metrics to Prometheus to measure what the SLO cannot.
+- **Server-side SLIs have a blind spot.** When a node died, k6 sent 990
+  requests and 2.0% of them failed. The server counted only 923 requests and
+  zero errors: requests to pods on the dead node never reach a server to be
+  counted. k6 pushes client-side metrics to Prometheus to measure what the SLO
+  cannot.
 - **A slow dependency becomes errors.** 400 ms on Postgres exhausted the
   connection pool, and 19% of reads failed with 503 during the delay
   ([postmortem](docs/postmortems/2026-10-03-slow-postgres.md)).

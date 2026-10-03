@@ -7,6 +7,9 @@ global:
 configs:
   params:
     server.insecure: true # plain HTTP on localhost:30080
+    # Diff through a server-side apply dry run, so fields the API server
+    # defaults (HPA behavior, PVC templates, ...) never show up as drift.
+    controller.diff.server.side: "true"
   cm:
     # Poll the in-cluster Git server often; incident tests also force a refresh.
     timeout.reconciliation: 20s
