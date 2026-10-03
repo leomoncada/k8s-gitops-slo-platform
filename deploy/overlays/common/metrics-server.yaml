@@ -1,0 +1,9 @@
+# kind kubelets use self-signed certificates and are reached by internal IP.
+args:
+  - --kubelet-insecure-tls
+  - --kubelet-preferred-address-types=InternalIP
+
+# Platform components run on the infra node (the control-plane in kind), so a
+# worker failure (incident #5) only ever hits the orders replicas (ADR 9).
+nodeSelector: { platform/role: infra }
+tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: platform-config
+description: Glue for the platform - alert webhook sink, fixed NodePorts, Grafana dashboards.
+type: application
+version: 0.1.0

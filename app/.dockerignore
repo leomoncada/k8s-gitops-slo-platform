@@ -1,0 +1,4 @@
+*
+!requirements.txt
+!orders/
+**/__pycache__

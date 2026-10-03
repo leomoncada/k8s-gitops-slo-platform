@@ -1,0 +1,27 @@
+# Tooling config for the orders service. Dependencies live in requirements*.txt
+# (the image installs requirements.txt only); this file is not a package build.
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF",
+    "S", "BLE", "PT", "ASYNC", "PL", "DTZ", "LOG", "G", "TID",
+]
+ignore = [
+    "PLR2004", # magic values in comparisons are fine in tests and status codes
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607", "PLR0913"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["orders"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers -p no:cacheprovider"
+filterwarnings = ["error"]

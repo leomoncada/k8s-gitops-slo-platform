@@ -1,0 +1,41 @@
+# Same failure against the real 30-day windows used locally.
+rule_files:
+  - ../../build/rules/slo-kind.yaml
+evaluation_interval: 30s
+
+tests:
+  - name: (30-day windows) 30% errors page within minutes
+    interval: 30s
+    input_series:
+      - series: http_requests_total{job="orders", status="200"}
+        values: "0+2100x40"
+      - series: http_requests_total{job="orders", status="500"}
+        values: "0+900x40"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OrdersAvailabilityBurnRate
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              sloth_severity: page
+              category: availability
+              owner: platform
+              sloth_id: orders-requests-availability
+              sloth_service: orders
+              sloth_slo: requests-availability
+            exp_annotations:
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersAvailabilityBurnRate.md
+              summary: orders is burning its availability error budget too fast
+              title: "(page) orders requests-availability SLO error budget burn rate is too fast."
+          - exp_labels:
+              severity: ticket
+              sloth_severity: ticket
+              category: availability
+              owner: platform
+              sloth_id: orders-requests-availability
+              sloth_service: orders
+              sloth_slo: requests-availability
+            exp_annotations:
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersAvailabilityBurnRate.md
+              summary: orders is burning its availability error budget too fast
+              title: "(ticket) orders requests-availability SLO error budget burn rate is too fast."

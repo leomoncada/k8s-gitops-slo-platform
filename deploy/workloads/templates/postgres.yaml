@@ -1,0 +1,84 @@
+# Single Postgres instance, pinned to the control-plane node: with node-local
+# storage it cannot move, so a worker failure (incident #5) must not take it
+# down. A known single point of failure (ADR 9).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres
+stringData:
+  POSTGRES_USER: orders
+  POSTGRES_PASSWORD: orders-local-only
+  POSTGRES_DB: orders
+  DATABASE_URL: postgresql://orders:orders-local-only@postgres:5432/orders
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  clusterIP: None
+  selector: { app: postgres }
+  ports:
+    - { name: postgres, port: 5432 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      nodeSelector:
+        platform/role: infra
+      tolerations:
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          envFrom:
+            - secretRef: { name: postgres }
+          env:
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          # exec probes run inside the container, so network chaos on this pod
+          # (incident #2) never restarts it.
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "orders", "-d", "orders"] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "orders", "-d", "orders"] }
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+  volumeClaimTemplates:
+    # apiVersion, kind and volumeMode are defaulted by the API server; stating
+    # them avoids a permanent OutOfSync in Argo CD.
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        volumeMode: Filesystem
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-schema
+data:
+  schema.sql: |
+{{ .Files.Get "files/schema.sql" | indent 4 }}

@@ -1,0 +1,61 @@
+# SLOs for the orders service. Sloth turns this into recording rules and
+# multiwindow, multi-burn-rate alerts (ADR 5). Never edit slos/generated/ by
+# hand: run `make slos`, and CI fails if the generated files drift.
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: orders
+  namespace: orders
+spec:
+  service: orders
+  labels:
+    owner: platform
+  slos:
+    - name: requests-availability
+      objective: 99.9
+      description: 99.9% of orders API requests do not fail with a 5xx.
+      sli:
+        events:
+          # 4xx are the client's fault and do not burn the budget. `or vector(0)`
+          # keeps the ratio at 0 instead of "no data" when no 5xx exists at all.
+          errorQuery: sum(rate(http_requests_total{job="orders", status=~"5.."}[{{.window}}])) or vector(0)
+          totalQuery: sum(rate(http_requests_total{job="orders"}[{{.window}}]))
+      alerting:
+        name: OrdersAvailabilityBurnRate
+        labels:
+          category: availability
+        annotations:
+          summary: orders is burning its availability error budget too fast
+          runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersAvailabilityBurnRate.md
+        pageAlert:
+          labels:
+            severity: page
+        ticketAlert:
+          labels:
+            severity: ticket
+    - name: requests-latency
+      objective: 99
+      description: 99% of orders API requests complete in under 300 ms.
+      sli:
+        events:
+          # Slow = all requests minus those in the 0.3 s histogram bucket.
+          errorQuery: |
+            (
+              sum(rate(http_request_duration_seconds_count{job="orders"}[{{.window}}]))
+              -
+              sum(rate(http_request_duration_seconds_bucket{job="orders", le="0.3"}[{{.window}}]))
+            )
+          totalQuery: sum(rate(http_request_duration_seconds_count{job="orders"}[{{.window}}]))
+      alerting:
+        name: OrdersLatencyBurnRate
+        labels:
+          category: latency
+        annotations:
+          summary: orders is burning its latency error budget too fast
+          runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersLatencyBurnRate.md
+        pageAlert:
+          labels:
+            severity: page
+        ticketAlert:
+          labels:
+            severity: ticket

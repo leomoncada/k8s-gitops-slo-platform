@@ -1,0 +1,4 @@
+# CI: scale back down quickly after the traffic spike (incident #6).
+orders:
+  hpa:
+    scaleDownStabilizationSeconds: 30

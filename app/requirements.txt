@@ -1,0 +1,12 @@
+# Runtime dependencies of the orders service, pinned exactly (Renovate bumps them).
+fastapi==0.142.2
+uvicorn==0.54.0
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
+prometheus-client==0.26.0
+structlog==26.1.0
+opentelemetry-api==1.45.0
+opentelemetry-sdk==1.45.0
+opentelemetry-exporter-otlp-proto-http==1.45.0
+opentelemetry-instrumentation-fastapi==0.66b0
+opentelemetry-instrumentation-psycopg==0.66b0

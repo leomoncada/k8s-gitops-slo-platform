@@ -1,0 +1,28 @@
+# CI-only alert windows (ADR 6). The SLO period shrinks from 30 days to 1 hour
+# and the windows shrink with it, but every window keeps the burn-rate
+# threshold of the production (Google SRE workbook) windows:
+#   burn rate = errorBudgetPercent / 100 * sloPeriod / longWindow
+#   page quick 14.4, page slow 6, ticket quick 3, ticket slow 1.
+# Same math, minutes instead of hours.
+apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 1h
+  page:
+    quick:
+      errorBudgetPercent: 48 # 0.48 * 60m / 2m = 14.4
+      shortWindow: 30s
+      longWindow: 2m
+    slow:
+      errorBudgetPercent: 50 # 0.50 * 60m / 5m = 6
+      shortWindow: 1m
+      longWindow: 5m
+  ticket:
+    quick:
+      errorBudgetPercent: 50 # 0.50 * 60m / 10m = 3
+      shortWindow: 2m
+      longWindow: 10m
+    slow:
+      errorBudgetPercent: 50 # 0.50 * 60m / 30m = 1
+      shortWindow: 5m
+      longWindow: 30m

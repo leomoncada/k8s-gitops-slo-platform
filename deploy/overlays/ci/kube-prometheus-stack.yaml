@@ -1,0 +1,7 @@
+# CI: 5 s scrape and evaluation so compressed SLO windows detect in minutes
+# (ADR 6). Short retention keeps memory down on 16 GB runners.
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 5s
+    evaluationInterval: 5s
+    retention: 2h

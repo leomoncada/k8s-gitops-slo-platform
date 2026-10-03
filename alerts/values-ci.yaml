@@ -1,0 +1,6 @@
+# CI: shorter durations so each incident test finishes in minutes (ADR 6).
+oomWindow: 3m
+nodeDownFor: 30s
+hpaMaxedOutFor: 30s
+driftNotHealedFor: 2m
+metricsAbsentFor: 1m

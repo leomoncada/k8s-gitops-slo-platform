@@ -1,0 +1,7 @@
+# Real-time durations (local, values-kind.yaml is empty on purpose).
+runbookBase: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks
+oomWindow: 10m
+nodeDownFor: 1m
+hpaMaxedOutFor: 2m
+driftNotHealedFor: 5m
+metricsAbsentFor: 2m

@@ -1,0 +1,19 @@
+# 400 ms on everything the Postgres pod sends, so every query reply is late.
+# Delaying the Postgres pod's egress works however clients connect; a targeted
+# delay towards Postgres would miss traffic sent to the Service ClusterIP
+# (spike evidence and reasoning in ADR 7).
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: slow-postgres
+  namespace: orders
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces: [orders]
+    labelSelectors:
+      app: postgres
+  delay:
+    latency: 400ms
+  duration: 30m # safety net if the test dies before removing it

@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Orders Team <orders-team@example.com>
+Date: Fri, 2 Oct 2026 17:48:05 +0000
+Subject: [PATCH] feat(debug): keep replay snapshots of recent responses
+
+Support keeps asking "what exactly did the API return to this customer?",
+and the access log only records the status and the latency. Record a
+snapshot of every response, keyed by the trace id that already appears in
+each log line and in Tempo, and serve it from GET /debug/replay/{trace_id}.
+
+Snapshots are fixed-size records (REPLAY_BUFFER_BYTES, 256 KiB) so the
+replay tool can read them at fixed offsets; that fits a full
+GET /orders?limit=100 page.
+
+Release 1.2.0.
+---
+ app/Dockerfile              |  2 +-
+ app/orders/__init__.py      |  2 +-
+ app/orders/api.py           | 13 +++++++++++--
+ app/orders/observability.py |  8 ++++++++
+ app/orders/replay.py        | 26 ++++++++++++++++++++++++++
+ 5 files changed, 47 insertions(+), 4 deletions(-)
+ create mode 100644 app/orders/replay.py
+
+diff --git a/app/Dockerfile b/app/Dockerfile
+index 40234e8..0019252 100644
+--- a/app/Dockerfile
++++ b/app/Dockerfile
+@@ -19,7 +19,7 @@ RUN python -m compileall -q --invalidation-mode checked-hash /srv/orders
+ # --- runtime ---------------------------------------------------------------
+ FROM ${PYTHON_IMAGE}
+ 
+-ARG APP_VERSION=1.0.0
++ARG APP_VERSION=1.2.0
+ LABEL org.opencontainers.image.title="orders" \
+       org.opencontainers.image.version="${APP_VERSION}"
+ 
+diff --git a/app/orders/__init__.py b/app/orders/__init__.py
+index 3646198..679cc47 100644
+--- a/app/orders/__init__.py
++++ b/app/orders/__init__.py
+@@ -1,4 +1,4 @@
+ """orders: a small FastAPI service built to fail in realistic ways."""
+ 
+ # Default release version. Images override it with the APP_VERSION build arg.
+-__version__ = "1.0.0"
++__version__ = "1.2.0"
+diff --git a/app/orders/api.py b/app/orders/api.py
+index e21eef5..0ce79c7 100644
+--- a/app/orders/api.py
++++ b/app/orders/api.py
+@@ -2,10 +2,10 @@
+ 
+ from typing import Annotated, Any
+ 
+-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
++from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+ from psycopg_pool import AsyncConnectionPool
+ 
+-from orders import db
++from orders import db, replay
+ from orders.models import OrderCreate
+ from orders.serialization import serialize_order
+ 
+@@ -45,6 +45,15 @@ async def list_orders(
+     return [serialize_order(row) for row in await db.list_orders(pool, limit)]
+ 
+ 
++@router.get("/debug/replay/{trace_id}", include_in_schema=False)
++async def debug_replay(trace_id: str) -> Response:
++    """The response a past request received, by the trace id in its log line."""
++    snapshot = replay.lookup(trace_id)
++    if snapshot is None:
++        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no snapshot for this trace")
++    return Response(snapshot, media_type="text/plain")
++
++
+ @router.get("/healthz", include_in_schema=False)
+ async def healthz() -> dict[str, str]:
+     """Liveness: the process answers."""
+diff --git a/app/orders/observability.py b/app/orders/observability.py
+index 658cfc7..61dd810 100644
+--- a/app/orders/observability.py
++++ b/app/orders/observability.py
+@@ -8,9 +8,12 @@ saying anything about what users experience.
+ import time
+ 
+ import structlog
++from opentelemetry import trace
+ from prometheus_client import Counter, Gauge, Histogram, disable_created_metrics
+ from starlette.types import ASGIApp, Message, Receive, Scope, Send
+ 
++from orders import replay
++
+ UNINSTRUMENTED_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
+ 
+ # Label used when no route matched, so random paths cannot explode cardinality.
+@@ -66,11 +69,14 @@ class RequestObservabilityMiddleware:
+         start = time.perf_counter()
+         # If the app raises before sending a response, the client gets a 500.
+         status = 500
++        body = bytearray()
+ 
+         async def send_wrapper(message: Message) -> None:
+             nonlocal status
+             if message["type"] == "http.response.start":
+                 status = message["status"]
++            elif message["type"] == "http.response.body":
++                body.extend(message.get("body", b""))
+             await send(message)
+ 
+         try:
+@@ -89,3 +95,5 @@ class RequestObservabilityMiddleware:
+                 status=status,
+                 duration_ms=round(elapsed * 1000, 2),
+             )
++            trace_id = format(trace.get_current_span().get_span_context().trace_id, "032x")
++            replay.record(trace_id, method, route, status, bytes(body))
+diff --git a/app/orders/replay.py b/app/orders/replay.py
+new file mode 100644
+index 0000000..200ffa0
+--- /dev/null
++++ b/app/orders/replay.py
+@@ -0,0 +1,26 @@
++"""Replay snapshots of recent responses, for debugging customer reports.
++
++Support regularly asks "what exactly did the API return for this request?",
++and the access log only has the status and the latency. Every served request
++leaves a snapshot keyed by its trace id (the id in each log line and in
++Tempo), which ``GET /debug/replay/{trace_id}`` returns verbatim.
++"""
++
++import time
++
++# Snapshots are fixed-size records so the replay tool can read them at fixed
++# offsets. 256 KiB holds a full ``GET /orders?limit=100`` page with room to spare.
++REPLAY_BUFFER_BYTES = 256 * 1024
++
++_snapshots: dict[str, bytes] = {}
++
++
++def record(trace_id: str, method: str, route: str, status: int, body: bytes) -> None:
++    header = f"{time.time():.6f} {method} {route} {status}\n".encode()
++    # Space padding keeps the record readable when dumped to a terminal.
++    _snapshots[trace_id] = (header + body)[:REPLAY_BUFFER_BYTES].ljust(REPLAY_BUFFER_BYTES)
++
++
++def lookup(trace_id: str) -> bytes | None:
++    snapshot = _snapshots.get(trace_id)
++    return None if snapshot is None else snapshot.rstrip()

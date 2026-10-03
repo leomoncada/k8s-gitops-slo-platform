@@ -1,0 +1,83 @@
+name: incidents
+
+# Each incident runs on its own fresh kind cluster with the CI overlay
+# (compressed SLO windows, ADR 6), all six in parallel.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *" # nightly: catches upstream breakage, keeps README evidence fresh
+  workflow_dispatch:
+    inputs:
+      incident:
+        description: "Incident number (1-6), empty for all"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: incidents-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: v0.33.0
+
+jobs:
+  incident:
+    name: incident ${{ matrix.incident }}
+    if: github.event.inputs.incident == '' || github.event.inputs.incident == null || contains(github.event.inputs.incident, matrix.incident)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        incident: ["1", "2", "3", "4", "5", "6"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            app/requirements-dev.txt
+            tests/requirements.txt
+      - name: Install kind
+        run: |
+          curl -sSLo kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x kind && sudo mv kind /usr/local/bin/kind
+      - name: make up (OVERLAYS="kind ci")
+        run: OVERLAYS="kind ci" make up
+      - name: make incident-${{ matrix.incident }}
+        run: make incident-${{ matrix.incident }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: report-${{ matrix.incident }}
+          path: reports/incidents/
+          if-no-files-found: ignore
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          curl -s localhost:30093/api/v2/alerts | python3 -m json.tool | head -100 || true
+          kubectl get applications -n argocd -o wide || true
+          kubectl get pods -A -o wide || true
+          kubectl -n orders get events --sort-by=.lastTimestamp | tail -40 || true
+
+  summary:
+    needs: incident
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: report-*
+          path: reports/incidents
+          merge-multiple: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Time to detect and time to recover, per incident
+        run: python scripts/summarize-incidents.py >> "$GITHUB_STEP_SUMMARY"

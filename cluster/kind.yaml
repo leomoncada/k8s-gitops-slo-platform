@@ -1,0 +1,24 @@
+# kind cluster: 1 control-plane + 2 workers.
+# Fixed localhost ports go through NodePorts on the control-plane, so tests and
+# humans never depend on `kubectl port-forward`. Host ports equal the NodePorts
+# (30xxx) to avoid clashing with common dev ports, and bind to 127.0.0.1 only.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: slo-platform
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.37.0
+    labels:
+      platform/role: infra # platform components and Postgres run here (ADR 9)
+    extraPortMappings:
+      - { containerPort: 30300, hostPort: 30300, listenAddress: 127.0.0.1 } # Grafana
+      - { containerPort: 30090, hostPort: 30090, listenAddress: 127.0.0.1 } # Prometheus
+      - { containerPort: 30093, hostPort: 30093, listenAddress: 127.0.0.1 } # Alertmanager
+      - { containerPort: 30080, hostPort: 30080, listenAddress: 127.0.0.1 } # Argo CD
+      - { containerPort: 30800, hostPort: 30800, listenAddress: 127.0.0.1 } # orders API
+      - { containerPort: 30320, hostPort: 30320, listenAddress: 127.0.0.1 } # Tempo query API
+      - { containerPort: 30232, hostPort: 30232, listenAddress: 127.0.0.1 } # in-cluster Git (Soft Serve HTTP)
+  - role: worker
+    image: kindest/node:v1.37.0
+  - role: worker
+    image: kindest/node:v1.37.0

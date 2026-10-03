@@ -1,0 +1,75 @@
+# Minimal Alertmanager webhook receiver: logs every notification as one JSON
+# line (searchable in Loki). Stands in for Slack or PagerDuty, no secrets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-sink
+data:
+  sink.py: |
+    import json
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            for alert in body.get("alerts", []):
+                print(json.dumps({
+                    "receiver": self.path.strip("/"),
+                    "status": alert.get("status"),
+                    "alertname": alert.get("labels", {}).get("alertname"),
+                    "severity": alert.get("labels", {}).get("severity"),
+                    "startsAt": alert.get("startsAt"),
+                    "endsAt": alert.get("endsAt"),
+                    "summary": alert.get("annotations", {}).get("summary"),
+                }), flush=True)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+
+    HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: alert-sink }
+  template:
+    metadata:
+      labels: { app: alert-sink }
+    spec:
+      nodeSelector:
+        platform/role: infra
+      tolerations:
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      containers:
+        - name: sink
+          image: {{ .Values.alertSink.image }}
+          command: ["python", "-u", "/app/sink.py"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            tcpSocket: { port: http }
+          resources:
+            requests: { cpu: 5m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: app, mountPath: /app }
+      volumes:
+        - name: app
+          configMap: { name: alert-sink }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-sink
+spec:
+  selector: { app: alert-sink }
+  ports:
+    - { name: http, port: 8080, targetPort: http }

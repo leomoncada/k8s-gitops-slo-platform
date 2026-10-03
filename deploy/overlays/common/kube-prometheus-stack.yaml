@@ -1,0 +1,139 @@
+# Short, predictable names: kps-prometheus, kps-alertmanager, kps-grafana.
+fullnameOverride: kps
+
+# kind does not expose these control-plane components; left enabled, their
+# scrape targets are down and their alerts fire forever, which would break
+# the clean-baseline check every incident starts with.
+kubeEtcd: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeProxy: { enabled: false }
+defaultRules:
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
+    kubeProxy: false
+  disabled:
+    # kind nodes do not report NTP sync, so these fire on every laptop and runner.
+    NodeClockNotSynchronising: true
+    NodeClockSkewDetected: true
+
+prometheus-node-exporter:
+  # The root filesystem mount fails on kind (mount propagation), and the
+  # platform does not need host filesystem metrics.
+  hostRootFsMount: { enabled: false }
+
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+  prometheusSpec:
+    nodeSelector: { platform/role: infra }
+    tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+    # Pick up ServiceMonitors, PodMonitors and rules from every namespace,
+    # not only the ones labelled for this Helm release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    retention: 12h
+    # k6 pushes client-side metrics here, so a failure the server never sees
+    # (requests to a dead node, incident #5) is still measured.
+    enableRemoteWriteReceiver: true
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+
+alertmanager:
+  service:
+    type: NodePort
+    nodePort: 30093
+  alertmanagerSpec:
+    nodeSelector: { platform/role: infra }
+    tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+  config:
+    global:
+      resolve_timeout: 1m
+    route:
+      receiver: ticket
+      group_by: [alertname, sloth_slo, severity]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 4h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname =~ "Watchdog|InfoInhibitor"']
+        - receiver: page
+          matchers: ['severity = "page"']
+    receivers:
+      - name: "null"
+      - name: page
+        webhook_configs:
+          - url: http://alert-sink.monitoring.svc:8080/page
+            send_resolved: true
+      - name: ticket
+        webhook_configs:
+          - url: http://alert-sink.monitoring.svc:8080/ticket
+            send_resolved: true
+
+grafana:
+  adminPassword: admin # local only; anonymous visitors get Viewer
+  nodeSelector: { platform/role: infra }
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+  service:
+    type: NodePort
+    nodePort: 30300
+  persistence: { enabled: false }
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    users:
+      viewers_can_edit: true # lets anonymous viewers use Explore (local lab only)
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.monitoring.svc:3100
+      jsonData:
+        derivedFields:
+          - name: TraceID
+            datasourceUid: tempo
+            matcherRegex: '"trace_id":\s*"(\w+)"'
+            url: "$${__value.raw}"
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      url: http://tempo.monitoring.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          customQuery: true
+          query: '{k8s_namespace_name="orders"} |= "$${__span.traceId}"'
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+
+# Platform components run on the infra node (the control-plane in kind), so a
+# worker failure (incident #5) only ever hits the orders replicas (ADR 9).
+prometheusOperator:
+  nodeSelector: { platform/role: infra }
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+  admissionWebhooks:
+    patch:
+      nodeSelector: { platform/role: infra }
+      tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+kube-state-metrics:
+  nodeSelector: { platform/role: infra }
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]

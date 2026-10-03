@@ -1,0 +1,24 @@
+orders:
+  # Incidents #1 and #3 change this tag with a commit; the fix is `git revert`.
+  image: orders:1.0.0
+  replicas: 3
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi } # makes the v1.2.0 leak a real OOM (incident #3)
+  hpa:
+    minReplicas: 3
+    maxReplicas: 6
+    cpuUtilization: 60
+    scaleDownStabilizationSeconds: 300
+  # Default is 300 s: pods on a dead node would wait five minutes (ADR 10).
+  tolerationSeconds: 30
+  logLevel: info
+
+postgres:
+  image: postgres:17.11
+  storage: 1Gi
+
+traffic:
+  image: grafana/k6:2.3.0
+  rate: 10 # requests per second
+  nullNoteShare: 0.3 # share of created orders with a null note (incident #1)

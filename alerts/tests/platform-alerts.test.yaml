@@ -1,0 +1,130 @@
+# Own rules rendered with CI durations (alerts/values-ci.yaml).
+rule_files:
+  - ../../build/rules/platform-alerts.yaml
+evaluation_interval: 15s
+
+tests:
+  - name: an OOM-killed orders container fires, then resolves once restarts stop
+    interval: 1m
+    input_series:
+      - series: kube_pod_container_status_restarts_total{namespace="orders", pod="orders-a", container="orders"}
+        values: "0 0 0 1 1 1 1 1 1 1 1"
+      - series: kube_pod_container_status_last_terminated_reason{namespace="orders", pod="orders-a", container="orders", reason="OOMKilled"}
+        values: "_ _ _ 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OrdersContainerOOMKilled
+        exp_alerts:
+          - exp_labels: { severity: ticket, namespace: orders, pod: orders-a, container: orders }
+            exp_annotations:
+              summary: orders container orders-a was OOM-killed
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersContainerOOMKilled.md
+      - eval_time: 9m
+        alertname: OrdersContainerOOMKilled
+        exp_alerts: []
+
+  - name: a restart that is not an OOM does not fire
+    interval: 1m
+    input_series:
+      - series: kube_pod_container_status_restarts_total{namespace="orders", pod="orders-a", container="orders"}
+        values: "0 0 1 1 1"
+      - series: kube_pod_container_status_last_terminated_reason{namespace="orders", pod="orders-a", container="orders", reason="Error"}
+        values: "_ _ 1 1 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OrdersContainerOOMKilled
+        exp_alerts: []
+
+  - name: the HPA at its maximum fires after the hold time
+    interval: 15s
+    input_series:
+      - series: kube_horizontalpodautoscaler_status_current_replicas{namespace="orders", horizontalpodautoscaler="orders"}
+        values: "3 3 4 6 6 6 6 6"
+      - series: kube_horizontalpodautoscaler_spec_max_replicas{namespace="orders", horizontalpodautoscaler="orders"}
+        values: "6x7"
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: OrdersHPAMaxedOut
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: OrdersHPAMaxedOut
+        exp_alerts:
+          - exp_labels: { severity: ticket, namespace: orders, horizontalpodautoscaler: orders }
+            exp_annotations:
+              summary: "orders is running at its HPA maximum; autoscaling has no headroom left"
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersHPAMaxedOut.md
+
+  - name: no orders target scraped pages; a healthy target does not
+    interval: 15s
+    input_series:
+      - series: up{job="kube-state-metrics"}
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: OrdersMetricsAbsent
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: OrdersMetricsAbsent
+        exp_alerts:
+          # absent() over a comparison keeps no labels, so no job label here
+          - exp_labels: { severity: page }
+            exp_annotations:
+              summary: "No orders target is being scraped; SLO alerts are blind"
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/OrdersMetricsAbsent.md
+
+  - name: one healthy orders target is enough to stay quiet
+    interval: 15s
+    input_series:
+      - series: up{job="orders", pod="orders-a"}
+        values: "0x10"
+      - series: up{job="orders", pod="orders-b"}
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OrdersMetricsAbsent
+        exp_alerts: []
+
+  - name: a node that stops being Ready fires
+    interval: 15s
+    input_series:
+      - series: kube_node_status_condition{node="slo-platform-worker", condition="Ready", status="true"}
+        values: "1 1 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: KubeNodeDown
+        exp_alerts: []
+      - eval_time: 75s
+        alertname: KubeNodeDown
+        exp_alerts:
+          - exp_labels: { severity: ticket, node: slo-platform-worker, condition: Ready, status: "true" }
+            exp_annotations:
+              summary: "Node slo-platform-worker is not Ready"
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/KubeNodeDown.md
+
+  - name: drift that self-heal fixes in seconds never fires
+    interval: 15s
+    input_series:
+      # When the sync status changes, the old series leaves the scrape and
+      # Prometheus marks it stale at once.
+      - series: argocd_app_info{name="orders", sync_status="OutOfSync", autosync_enabled="true"}
+        values: "1 1 stale"
+      - series: argocd_app_info{name="orders", sync_status="Synced", autosync_enabled="true"}
+        values: "_ _ 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: GitOpsDriftNotHealed
+        exp_alerts: []
+
+  - name: drift that self-heal cannot fix fires
+    interval: 15s
+    input_series:
+      - series: argocd_app_info{name="orders", sync_status="OutOfSync", autosync_enabled="true"}
+        values: "1x12"
+    alert_rule_test:
+      - eval_time: 150s
+        alertname: GitOpsDriftNotHealed
+        exp_alerts:
+          - exp_labels: { severity: ticket, name: orders, sync_status: OutOfSync, autosync_enabled: "true" }
+            exp_annotations:
+              summary: "Argo CD application orders has stayed OutOfSync despite self-heal"
+              runbook_url: https://github.com/leomoncada/k8s-gitops-slo-platform/blob/main/docs/runbooks/GitOpsDriftNotHealed.md

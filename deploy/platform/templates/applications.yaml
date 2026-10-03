@@ -1,0 +1,48 @@
+{{- $c := .Values.charts -}}
+{{ include "platform.chartApp" (dict "root" $ "name" "metrics-server" "chart" $c.metricsServer "namespace" "kube-system" "release" "metrics-server" "file" "metrics-server.yaml" "wave" 0) }}
+---
+{{ include "platform.chartApp" (dict "root" $ "name" "kube-prometheus-stack" "chart" $c.kubePrometheusStack "namespace" "monitoring" "release" "kps" "file" "kube-prometheus-stack.yaml" "wave" 1) }}
+---
+{{ include "platform.chartApp" (dict "root" $ "name" "loki" "chart" $c.loki "namespace" "monitoring" "release" "loki" "file" "loki.yaml" "wave" 1) }}
+---
+{{ include "platform.chartApp" (dict "root" $ "name" "tempo" "chart" $c.tempo "namespace" "monitoring" "release" "tempo" "file" "tempo.yaml" "wave" 1) }}
+---
+{{ include "platform.chartApp" (dict "root" $ "name" "chaos-mesh" "chart" $c.chaosMesh "namespace" "chaos-mesh" "release" "chaos-mesh" "file" "chaos-mesh.yaml" "wave" 1) }}
+---
+{{ include "platform.chartApp" (dict "root" $ "name" "otel-collector" "chart" $c.otelCollector "namespace" "monitoring" "release" "otel-collector" "file" "otel-collector.yaml" "wave" 2) }}
+---
+{{ include "platform.localApp" (dict "root" $ "name" "platform-config" "path" "deploy/platform-config" "namespace" "monitoring" "wave" 2) }}
+---
+{{ include "platform.localApp" (dict "root" $ "name" "alerts" "path" "alerts" "namespace" "monitoring" "wave" 2) }}
+---
+{{- /* Generated SLO rules: real windows locally, compressed windows in CI (ADR 6) */}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: slo-rules
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: orders
+  source:
+    repoURL: {{ .Values.repoURL }}
+    targetRevision: {{ .Values.targetRevision }}
+    path: slos/generated/{{ if has "ci" .Values.overlays }}ci{{ else }}kind{{ end }}
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+{{- $ignoreReplicas := `ignoreDifferences:
+  # The HPA owns the replica count (ADR 11).
+  - group: apps
+    kind: Deployment
+    name: orders
+    jsonPointers:
+      - /spec/replicas` }}
+{{ include "platform.localApp" (dict "root" $ "name" "workloads" "path" "deploy/workloads" "namespace" "orders" "wave" 3 "extra" $ignoreReplicas) }}

@@ -1,0 +1,48 @@
+# Constant baseline traffic: SLOs measure nothing without requests.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traffic-script
+data:
+  baseline.js: |
+{{ .Files.Get "files/baseline.js" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic
+  labels: { app: traffic }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: traffic }
+  template:
+    metadata:
+      labels: { app: traffic }
+    spec:
+      # The load generator runs on the infra node: it must keep sending traffic
+      # when a worker dies (incident #5) and must not steal orders' CPU.
+      nodeSelector:
+        platform/role: infra
+      tolerations:
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      containers:
+        - name: k6
+          image: {{ .Values.traffic.image }}
+          args: ["run", "--quiet", "--summary-mode=disabled", "--out", "experimental-prometheus-rw", "/scripts/baseline.js"]
+          env:
+            - { name: TARGET, value: "http://orders:8000" }
+            - { name: RATE, value: {{ .Values.traffic.rate | quote }} }
+            - { name: NULL_NOTE_SHARE, value: {{ .Values.traffic.nullNoteShare | quote }} }
+            # Client-side metrics (k6_http_reqs_total, ...) pushed to Prometheus
+            - { name: K6_PROMETHEUS_RW_SERVER_URL, value: "http://kps-prometheus.monitoring.svc:9090/api/v1/write" }
+            - { name: K6_PROMETHEUS_RW_PUSH_INTERVAL, value: "5s" }
+            - { name: K6_PROMETHEUS_RW_TREND_STATS, value: "p(95),p(99)" }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts }
+      volumes:
+        - name: scripts
+          configMap: { name: traffic-script }

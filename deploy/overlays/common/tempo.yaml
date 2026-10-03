@@ -1,0 +1,13 @@
+fullnameOverride: tempo
+tempo:
+  reportingEnabled: false
+  retention: 12h
+  metricsGenerator:
+    enabled: false
+persistence:
+  enabled: false
+
+# Platform components run on the infra node (the control-plane in kind), so a
+# worker failure (incident #5) only ever hits the orders replicas (ADR 9).
+nodeSelector: { platform/role: infra }
+tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]

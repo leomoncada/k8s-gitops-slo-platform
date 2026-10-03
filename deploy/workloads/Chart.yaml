@@ -1,0 +1,5 @@
+apiVersion: v2
+name: workloads
+description: The orders service, its Postgres and constant baseline traffic.
+type: application
+version: 0.1.0

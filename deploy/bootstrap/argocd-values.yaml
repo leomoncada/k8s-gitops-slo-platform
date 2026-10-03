@@ -1,0 +1,44 @@
+# Argo CD itself is installed by `make up` with Helm; everything else is
+# installed by Argo CD from this repository.
+# Argo CD runs on the infra node (ADR 9).
+global:
+  nodeSelector: { platform/role: infra }
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+configs:
+  params:
+    server.insecure: true # plain HTTP on localhost:30080
+  cm:
+    # Poll the in-cluster Git server often; incident tests also force a refresh.
+    timeout.reconciliation: 20s
+    timeout.reconciliation.jitter: 0s
+    # Read-only UI without logging in. The admin password stays in the
+    # argocd-initial-admin-secret Secret.
+    users.anonymous.enabled: "true"
+    # Make parent apps wait for child Applications to be healthy, so sync
+    # waves in the app-of-apps actually order the rollout.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+  rbac:
+    policy.default: role:readonly
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30080
+dex:
+  enabled: false
+notifications:
+  enabled: false
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true

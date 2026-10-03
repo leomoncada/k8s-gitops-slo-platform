@@ -1,0 +1,62 @@
+# The kube-prometheus-stack defaults for these cases wait up to 15 minutes;
+# these fire on what the incidents actually need, with per-overlay durations.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-alerts
+spec:
+  groups:
+    - name: orders
+      rules:
+        - alert: OrdersContainerOOMKilled
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="orders", container="orders"}[{{ .Values.oomWindow }}]) > 0
+            and on (namespace, pod, container)
+            kube_pod_container_status_last_terminated_reason{namespace="orders", container="orders", reason="OOMKilled"} == 1
+          labels:
+            severity: ticket
+          annotations:
+            summary: "orders container {{ "{{" }} $labels.pod {{ "}}" }} was OOM-killed"
+            runbook_url: {{ .Values.runbookBase }}/OrdersContainerOOMKilled.md
+        - alert: OrdersHPAMaxedOut
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace="orders", horizontalpodautoscaler="orders"}
+            >=
+            kube_horizontalpodautoscaler_spec_max_replicas{namespace="orders", horizontalpodautoscaler="orders"}
+          for: {{ .Values.hpaMaxedOutFor }}
+          labels:
+            severity: ticket
+          annotations:
+            summary: orders is running at its HPA maximum; autoscaling has no headroom left
+            runbook_url: {{ .Values.runbookBase }}/OrdersHPAMaxedOut.md
+        - alert: OrdersMetricsAbsent
+          # Absence of signal: without this, a vanished scrape target silences
+          # every SLO alert instead of raising one.
+          expr: absent(up{job="orders"} == 1)
+          for: {{ .Values.metricsAbsentFor }}
+          labels:
+            severity: page
+          annotations:
+            summary: No orders target is being scraped; SLO alerts are blind
+            runbook_url: {{ .Values.runbookBase }}/OrdersMetricsAbsent.md
+    - name: cluster
+      rules:
+        - alert: KubeNodeDown
+          expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+          for: {{ .Values.nodeDownFor }}
+          labels:
+            severity: ticket
+          annotations:
+            summary: "Node {{ "{{" }} $labels.node {{ "}}" }} is not Ready"
+            runbook_url: {{ .Values.runbookBase }}/KubeNodeDown.md
+    - name: gitops
+      rules:
+        - alert: GitOpsDriftNotHealed
+          # Self-heal fixes drift in seconds; this fires only when it cannot.
+          expr: argocd_app_info{sync_status="OutOfSync", autosync_enabled="true"} == 1
+          for: {{ .Values.driftNotHealedFor }}
+          labels:
+            severity: ticket
+          annotations:
+            summary: "Argo CD application {{ "{{" }} $labels.name {{ "}}" }} has stayed OutOfSync despite self-heal"
+            runbook_url: {{ .Values.runbookBase }}/GitOpsDriftNotHealed.md

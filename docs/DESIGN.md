@@ -1,6 +1,6 @@
 # Design: `k8s-gitops-slo-platform`
 
-**Status:** designed, ready for an implementation plan.
+**Status:** implemented (v1). Section 17 lists what changed during implementation.
 **Date:** 2026-10-03
 **Owner:** Leomar Moncada
 **Companion repos:** `leomoncada/aws-ecs-fargate-platform`, `leomoncada/localstack-ephemeral-infra`, `leomoncada/aws-serverless-golden-path`
@@ -85,11 +85,13 @@ kind" repo:
 
 | Service | URL |
 |---|---|
-| Grafana | `http://localhost:3000` (anonymous viewer) |
-| Prometheus | `http://localhost:9090` |
-| Alertmanager | `http://localhost:9093` |
-| Argo CD | `http://localhost:8080` |
-| orders API | `http://localhost:8000` |
+| Grafana | `http://localhost:30300` (anonymous viewer) |
+| Prometheus | `http://localhost:30090` |
+| Alertmanager | `http://localhost:30093` |
+| Argo CD | `http://localhost:30080` (anonymous read-only) |
+| orders API | `http://localhost:30800` |
+| Tempo query API | `http://localhost:30320` |
+| In-cluster Git | `http://localhost:30232/platform.git` |
 
 ---
 
@@ -117,7 +119,7 @@ a full outage. Same reasoning as `/api/health/ready` in
 - Postgres as a StatefulSet built in this repo, with the official image and a
   local-path volume. No Bitnami chart (image terms changed in 2025) and no
   operator (out of proportion for one instance).
-- Schema created by an init Job.
+- Schema applied by an idempotent initContainer in the orders Deployment (section 17).
 - Postgres probes use `pg_isready` via exec, so network chaos on the Postgres
   pod never restarts it.
 - **Postgres is pinned to the control-plane node.** With a node-local volume it
@@ -270,8 +272,8 @@ runbook to follow) and its injection assets.
 | 2 | Slow dependency | Chaos Mesh `NetworkChaos`: 400 ms delay on all egress of the Postgres pod | Delete the experiment | A Tempo trace shows a Postgres span above 350 ms |
 | 3 | Memory leak | Commit `v1.2.0` | `git revert` | Container restart count increased with reason `OOMKilled` |
 | 4 | Manual drift | `kubectl set env` on the Deployment and `kubectl delete pdb` | Automatic: Argo CD self-heal | Both restored in under 60 seconds, and no page fired |
-| 5 | Node failure | `docker stop` a worker running at least one replica | `docker start` the node | 3 Ready replicas restored on the surviving worker; error budget spent stays under a measured threshold; the node rejoins |
-| 6 | Traffic spike | k6 Job ramping to about 200 requests per second | The load ends | HPA scaled to its maximum; the alert resolves after scale-down |
+| 5 | Node failure | `docker stop` a worker running at least one replica | `docker start` the node | 3 Ready replicas restored on the surviving worker; client-side failed share (k6) at most 10%, server-side 5xx share recorded; the node rejoins |
+| 6 | Traffic spike | k6 Job ramping to about 350 requests per second | The load ends | HPA scaled to its maximum; the alert resolves after scale-down |
 
 Drift is an env var and a deleted PodDisruptionBudget rather than "scale to 0",
 because the HPA owns replicas and an HPA does not scale a Deployment that is at
@@ -485,6 +487,28 @@ anonymous Grafana viewer on localhost, multi-cluster.
 Not open design questions; values to measure and fix in the plan:
 
 - CI window lengths and alert `for` durations per overlay.
-- The error budget threshold asserted in incident #5.
+- The client-side failure share asserted in incident #5 (10% as built).
 - `v1.2.0` growth rate against the memory limit.
 - Exact versions: Python, Postgres image, chart versions, kind node image.
+
+---
+
+## 17. Changes during implementation
+
+What the build taught, kept here so the spec matches the code. The ADRs carry
+the full reasoning.
+
+| Area | Planned | Built | Why |
+|---|---|---|---|
+| Localhost ports | 3000, 9090, 8080, 8000 | The NodePorts themselves (30xxx), bound to 127.0.0.1 | The common ports were already taken by other local containers; 30xxx rarely clash, and localhost-only binding keeps the lab off the network |
+| Placement | Postgres pinned to the control-plane | Every platform component pinned to an infra node (the control-plane, label `platform/role=infra`); workers run only orders | Prometheus, Alertmanager and the load generator landed on workers, so the node-failure incident could blind the very tools that observe it. Chaos Mesh's daemon also needed a toleration to reach Postgres |
+| Schema | Init Job | Idempotent initContainer in the orders Deployment | An Argo CD sync hook waits for earlier waves to be healthy: an OOM-looping release (incident #3) would have blocked the `git revert` that fixes it |
+| Git server storage | Not specified | PersistentVolumeClaim | With `emptyDir`, a pod restart wiped the repository Argo CD reads from |
+| Tempo chart | `grafana/tempo` | `grafana-community/tempo` 3.1.0 | The Grafana chart is deprecated and moved to grafana-community |
+| Topology spread | Default | `nodeTaintsPolicy: Honor` | The tainted control-plane counted as an empty domain, so a third replica could never satisfy `maxSkew: 1` |
+| Availability SLI | `sum(rate(5xx))` | `sum(rate(5xx)) or vector(0)` | With no 5xx at all the ratio was "no data" instead of 0, exactly when the service is healthiest |
+| Extra alert | - | `OrdersMetricsAbsent` | Absence of signal: a vanished scrape target would otherwise silence every SLO alert |
+| Client-side SLI | - | k6 pushes `k6_http_reqs_total` to Prometheus (remote write) | Requests sent to pods on a dead node never reach the server, so the server-side SLI misses them (incident #5 measures both) |
+| Recovery in tests | Alert resolved | SLI back within objective over 1 minute; the page must also clear with CI windows | With real windows on a young cluster the slow page (30 m / 6 h) legitimately stays for ~30 minutes after a 1-minute incident |
+| Clean baseline | Nothing but Watchdog | Watchdog firing, no page, and not the incident's expected alert (name and severity) | Tickets left by an earlier incident legitimately last hours with real windows |
+| Defaults disabled | etcd, scheduler, controller-manager | Also `NodeClockNotSynchronising` and `NodeClockSkewDetected` | kind nodes do not report NTP sync |

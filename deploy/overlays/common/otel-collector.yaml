@@ -1,0 +1,42 @@
+# One agent per node: container logs to Loki, OTLP traces to Tempo.
+fullnameOverride: otel-collector
+mode: daemonset
+# Collect logs on every node, the infra node included (Postgres logs).
+tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+image:
+  repository: otel/opentelemetry-collector-k8s
+presets:
+  logsCollection:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true
+service:
+  enabled: true
+ports:
+  jaeger-compact: { enabled: false }
+  jaeger-thrift: { enabled: false }
+  jaeger-grpc: { enabled: false }
+  zipkin: { enabled: false }
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+  exporters:
+    otlphttp/loki:
+      endpoint: http://loki.monitoring.svc:3100/otlp
+    otlp/tempo:
+      endpoint: tempo.monitoring.svc:4317
+      tls:
+        insecure: true
+  service:
+    pipelines:
+      logs:
+        exporters: [otlphttp/loki]
+      traces:
+        receivers: [otlp]
+        exporters: [otlp/tempo]
+      metrics: null
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 384Mi }

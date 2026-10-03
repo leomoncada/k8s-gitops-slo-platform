@@ -1,0 +1,16 @@
+# kind nodes run containerd (verified with the spike on 2026-10-03, ADR 7).
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+  # The daemon must run on every node, including the infra node where
+  # Postgres lives, or incident #2 cannot inject anything there.
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+controllerManager:
+  replicaCount: 1
+  nodeSelector: { platform/role: infra }
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+dnsServer:
+  nodeSelector: { platform/role: infra }
+  tolerations: [{ key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }]
+dashboard:
+  create: false

@@ -1,0 +1,18 @@
+# Lint settings for the incident runner and scripts. app/ keeps its own in
+# app/pyproject.toml (the closest config wins).
+target-version = "py314"
+line-length = 100
+
+[lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF",
+    "S", "BLE", "PT", "PL", "DTZ", "LOG", "G", "TID",
+]
+ignore = ["PLR2004"]
+
+[lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607", "PLR0913"]
+"scripts/*.py" = ["S603", "S607"]
+
+[lint.isort]
+known-first-party = ["platform_lib", "orders"]

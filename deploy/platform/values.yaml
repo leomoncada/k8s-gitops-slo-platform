@@ -1,0 +1,18 @@
+# Where Argo CD reads this repository from. The in-cluster Git server in kind
+# and CI (ADR 1); GitHub in phase 2.
+repoURL: http://soft-serve.git-server.svc:23232/platform.git
+targetRevision: main
+
+# Value overlays applied on top of deploy/overlays/common, in order.
+# kind: ["kind"], CI: ["kind", "ci"], phase 2: ["eks"].
+overlays: ["kind"]
+
+# Pinned upstream charts. Renovate keeps these current.
+charts:
+  metricsServer: { repo: https://kubernetes-sigs.github.io/metrics-server/, name: metrics-server, version: 3.14.0 }
+  kubePrometheusStack: { repo: https://prometheus-community.github.io/helm-charts, name: kube-prometheus-stack, version: 91.9.0 }
+  loki: { repo: https://grafana.github.io/helm-charts, name: loki, version: 7.3.0 }
+  # grafana/tempo is deprecated; the single-binary chart moved to grafana-community
+  tempo: { repo: https://grafana-community.github.io/helm-charts, name: tempo, version: 3.1.0 }
+  otelCollector: { repo: https://open-telemetry.github.io/opentelemetry-helm-charts, name: opentelemetry-collector, version: 0.175.0 }
+  chaosMesh: { repo: https://charts.chaos-mesh.org, name: chaos-mesh, version: 2.8.4 }

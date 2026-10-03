@@ -1,0 +1,62 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "orders images are built locally and loaded into kind, never pulled",
+      "matchPackageNames": ["orders"],
+      "enabled": false
+    },
+    {
+      "description": "Group the observability stack so it is upgraded and tested together",
+      "matchPackageNames": ["kube-prometheus-stack", "loki", "tempo", "opentelemetry-collector"],
+      "groupName": "observability charts"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Upstream charts pinned in the app-of-apps values",
+      "managerFilePatterns": ["/^deploy/platform/values\\.yaml$/"],
+      "matchStrings": [
+        "\\{ repo: (?<registryUrl>\\S+), name: (?<depName>[\\w-]+), version: (?<currentValue>[\\d.]+) \\}"
+      ],
+      "datasourceTemplate": "helm"
+    },
+    {
+      "customType": "regex",
+      "description": "Versions annotated with a renovate comment in scripts",
+      "managerFilePatterns": ["/^scripts/.+\\.sh$/"],
+      "matchStrings": [
+        "=\"(?<currentValue>[^\"]+)\" # renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Tool images pinned in scripts (sloth, promtool, kubeconform, shellcheck)",
+      "managerFilePatterns": ["/^scripts/.+\\.sh$/"],
+      "matchStrings": ["_IMAGE=\"(?<depName>[^\":]+):(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Container images in manifests, values and the kind config",
+      "managerFilePatterns": [
+        "/^cluster/kind\\.yaml$/",
+        "/^deploy/.+\\.ya?ml$/",
+        "/^incidents/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["image: (?<depName>[a-z0-9][a-z0-9./-]+):(?<currentValue>[\\w.-]+)"],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "kind version used by CI",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["KIND_VERSION: (?<currentValue>v[\\d.]+)"],
+      "depNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}
