@@ -74,19 +74,20 @@ def test_node_failure(report, baseline, compressed):
         )
         r.mark("mitigated")
         window = f"{int(r.marks['mitigated'] - r.marks['injected']) + 30}s"
-        client = prom_value(
-            f'sum(increase(k6_http_reqs_total{{scenario="baseline", {FAILED}}}[{window}]))'
-        ) / max(
-            prom_value(f'sum(increase(k6_http_reqs_total{{scenario="baseline"}}[{window}]))'),
-            1,
-        )
-        server = prom_value(
+        k6 = 'k6_http_reqs_total{scenario="baseline"%s}'
+        client_total = prom_value(f"sum(increase({k6 % ''}[{window}]))")
+        client_failed = prom_value(f"sum(increase({k6 % (', ' + FAILED)}[{window}]))")
+        server_total = prom_value(f'sum(increase(http_requests_total{{job="orders"}}[{window}]))')
+        server_failed = prom_value(
             f'sum(increase(http_requests_total{{job="orders", status=~"5.."}}[{window}]))'
-        ) / max(
-            prom_value(f'sum(increase(http_requests_total{{job="orders"}}[{window}]))'),
-            1,
         )
+        # Without client-side data the share below would be a vacuous 0.
+        assert client_total > 0, "no k6 client-side metrics in Prometheus (remote write)"
+        client = client_failed / client_total
+        server = server_failed / server_total if server_total else 0.0
+        r.facts["client_requests"] = round(client_total)
         r.facts["client_failed_share"] = round(client, 4)
+        r.facts["server_requests"] = round(server_total)
         r.facts["server_5xx_share"] = round(server, 4)
         narrate(f"failed requests: client-side {client:.2%}, server-side 5xx {server:.2%}")
         assert client <= CLIENT_FAILURE_BUDGET, f"{client:.1%} of client requests failed"
