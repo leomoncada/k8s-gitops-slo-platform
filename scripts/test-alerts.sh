@@ -12,7 +12,7 @@ mkdir -p "$OUT"
 
 # PrometheusRule CR (stdin) -> plain Prometheus rules file (spec only)
 spec_only() {
-  python3 -c '
+  "$PYTHON" -c '
 import sys, yaml
 docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
 groups = [g for d in docs for g in d["spec"]["groups"]]

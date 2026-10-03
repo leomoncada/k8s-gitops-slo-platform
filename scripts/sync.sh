@@ -27,6 +27,12 @@ if [ -n "$parent" ]; then
 fi
 
 base="$(git rev-parse --short HEAD 2>/dev/null || echo "no commits")"
+# CI runners have no git identity; the snapshot commit only lives in the
+# in-cluster repo, so a fixed fallback identity is fine.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-$(git config user.name || echo "make sync")}"
+export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-$(git config user.email || echo "sync@slo-platform.local")}"
+export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}"
+export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}"
 commit="$(git commit-tree "$tree" ${parent_args[@]+"${parent_args[@]}"} -m "sync: working tree on top of $base")"
 git push -q "$GIT_REMOTE" "+$commit:refs/heads/main"
 echo "published $(git rev-parse --short "$commit") to $GIT_REMOTE"

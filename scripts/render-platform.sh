@@ -6,7 +6,8 @@
 # Usage: scripts/render-platform.sh [overlay ...]   (default: kind)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "$0")/lib.sh"
 OUT_DIR="${OUT_DIR:-$ROOT/build/rendered}"
 OVERLAYS="${*:-kind}"
 VALUES="$ROOT/deploy/platform/values.yaml"
@@ -15,7 +16,7 @@ mkdir -p "$OUT_DIR"
 
 # Reads charts.<key>.<field> from the platform chart values
 chart_field() {
-  python3 - "$VALUES" "$1" "$2" <<'PY'
+  "$PYTHON" - "$VALUES" "$1" "$2" <<'PY'
 import sys, yaml
 values = yaml.safe_load(open(sys.argv[1]))
 print(values["charts"][sys.argv[2]][sys.argv[3]])
